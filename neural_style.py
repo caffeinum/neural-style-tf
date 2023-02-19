@@ -233,33 +233,31 @@ def parse_args():
 
 def build_model(input_img):
   if args.verbose: print('\nBUILDING VGG-19 NETWORK')
-  net = {}
   _, h, w, d     = input_img.shape
-  
+
   if args.verbose: print('loading model weights...')
   vgg_rawnet     = scipy.io.loadmat(args.model_weights)
   vgg_layers     = vgg_rawnet['layers'][0]
   if args.verbose: print('constructing layers...')
-  net['input']   = tf.Variable(np.zeros((1, h, w, d), dtype=np.float32))
-
+  net = {'input': tf.Variable(np.zeros((1, h, w, d), dtype=np.float32))}
   if args.verbose: print('LAYER GROUP 1')
   net['conv1_1'] = conv_layer('conv1_1', net['input'], W=get_weights(vgg_layers, 0))
   net['relu1_1'] = relu_layer('relu1_1', net['conv1_1'], b=get_bias(vgg_layers, 0))
 
   net['conv1_2'] = conv_layer('conv1_2', net['relu1_1'], W=get_weights(vgg_layers, 2))
   net['relu1_2'] = relu_layer('relu1_2', net['conv1_2'], b=get_bias(vgg_layers, 2))
-  
+
   net['pool1']   = pool_layer('pool1', net['relu1_2'])
 
-  if args.verbose: print('LAYER GROUP 2')  
+  if args.verbose: print('LAYER GROUP 2')
   net['conv2_1'] = conv_layer('conv2_1', net['pool1'], W=get_weights(vgg_layers, 5))
   net['relu2_1'] = relu_layer('relu2_1', net['conv2_1'], b=get_bias(vgg_layers, 5))
-  
+
   net['conv2_2'] = conv_layer('conv2_2', net['relu2_1'], W=get_weights(vgg_layers, 7))
   net['relu2_2'] = relu_layer('relu2_2', net['conv2_2'], b=get_bias(vgg_layers, 7))
-  
+
   net['pool2']   = pool_layer('pool2', net['relu2_2'])
-  
+
   if args.verbose: print('LAYER GROUP 3')
   net['conv3_1'] = conv_layer('conv3_1', net['pool2'], W=get_weights(vgg_layers, 10))
   net['relu3_1'] = relu_layer('relu3_1', net['conv3_1'], b=get_bias(vgg_layers, 10))
@@ -309,15 +307,18 @@ def build_model(input_img):
 
 def conv_layer(layer_name, layer_input, W):
   conv = tf.nn.conv2d(layer_input, W, strides=[1, 1, 1, 1], padding='SAME')
-  if args.verbose: print('--{} | shape={} | weights_shape={}'.format(layer_name, 
-    conv.get_shape(), W.get_shape()))
+  if args.verbose:
+    print(
+        f'--{layer_name} | shape={conv.get_shape()} | weights_shape={W.get_shape()}'
+    )
   return conv
 
 def relu_layer(layer_name, layer_input, b):
   relu = tf.nn.relu(layer_input + b)
   if args.verbose: 
-    print('--{} | shape={} | bias_shape={}'.format(layer_name, relu.get_shape(), 
-      b.get_shape()))
+    print(
+        f'--{layer_name} | shape={relu.get_shape()} | bias_shape={b.get_shape()}'
+    )
   return relu
 
 def pool_layer(layer_name, layer_input):
@@ -328,18 +329,16 @@ def pool_layer(layer_name, layer_input):
     pool = tf.nn.max_pool(layer_input, ksize=[1, 2, 2, 1], 
       strides=[1, 2, 2, 1], padding='SAME')
   if args.verbose: 
-    print('--{}   | shape={}'.format(layer_name, pool.get_shape()))
+    print(f'--{layer_name}   | shape={pool.get_shape()}')
   return pool
 
 def get_weights(vgg_layers, i):
   weights = vgg_layers[i][0][0][2][0][0]
-  W = tf.constant(weights)
-  return W
+  return tf.constant(weights)
 
 def get_bias(vgg_layers, i):
   bias = vgg_layers[i][0][0][2][0][1]
-  b = tf.constant(np.reshape(bias, (bias.size)))
-  return b
+  return tf.constant(np.reshape(bias, (bias.size)))
 
 '''
   'a neural algorithm for artistic style' loss functions
@@ -354,8 +353,7 @@ def content_layer_loss(p, x):
     K = 1. / (N * M)
   elif args.content_loss_function == 3:  
     K = 1. / 2.
-  loss = K * tf.reduce_sum(tf.pow((x - p), 2))
-  return loss
+  return K * tf.reduce_sum(tf.pow((x - p), 2))
 
 def style_layer_loss(a, x):
   _, h, w, d = a.get_shape()
@@ -363,21 +361,17 @@ def style_layer_loss(a, x):
   N = d.value
   A = gram_matrix(a, M, N)
   G = gram_matrix(x, M, N)
-  loss = (1./(4 * N**2 * M**2)) * tf.reduce_sum(tf.pow((G - A), 2))
-  return loss
+  return (1./(4 * N**2 * M**2)) * tf.reduce_sum(tf.pow((G - A), 2))
 
 def gram_matrix(x, area, depth):
   F = tf.reshape(x, (area, depth))
-  G = tf.matmul(tf.transpose(F), F)
-  return G
+  return tf.matmul(tf.transpose(F), F)
 
 def mask_style_layer(a, x, mask_img):
   _, h, w, d = a.get_shape()
   mask = get_mask_image(mask_img, w.value, h.value)
   mask = tf.convert_to_tensor(mask)
-  tensors = []
-  for _ in range(d.value): 
-    tensors.append(mask)
+  tensors = [mask for _ in range(d.value)]
   mask = tf.stack(tensors, axis=2)
   mask = tf.stack(mask, axis=0)
   mask = tf.expand_dims(mask, 0)
@@ -446,8 +440,7 @@ def get_longterm_weights(i, j):
     if i - k > i - j:
       c_sum += get_content_weights(i, i - k)
   c = get_content_weights(i, i - j)
-  c_max = tf.maximum(c - c_sum, 0.)
-  return c_max
+  return tf.maximum(c - c_sum, 0.)
 
 def sum_longterm_temporal_losses(sess, net, frame, input_img):
   x = sess.run(net['input'].assign(input_img))
@@ -464,8 +457,7 @@ def sum_shortterm_temporal_losses(sess, net, frame, input_img):
   prev_frame = frame - 1
   w = get_prev_warped_frame(frame)
   c = get_content_weights(frame, prev_frame)
-  loss = temporal_loss(x, w, c)
-  return loss
+  return temporal_loss(x, w, c)
 
 '''
   utilities and i/o
@@ -523,9 +515,7 @@ def read_weights_file(path):
     line = lines[i].rstrip().split(' ')
     vals[i-1] = np.array(list(map(np.float32, line)))
     vals[i-1] = list(map(lambda x: 0. if x < 255. else 1., vals[i-1]))
-  # expand to 3 channels
-  weights = np.dstack([vals.astype(np.float32)] * 3)
-  return weights
+  return np.dstack([vals.astype(np.float32)] * 3)
 
 def normalize(weights):
   denom = sum(weights)
@@ -635,43 +625,39 @@ def write_video_output(frame, output_img):
 def write_image_output(output_img, content_img, style_imgs, init_img):
   out_dir = os.path.join(args.img_output_dir, args.img_name)
   maybe_make_directory(out_dir)
-  img_path = os.path.join(out_dir, args.img_name+'.png')
+  img_path = os.path.join(out_dir, f'{args.img_name}.png')
   content_path = os.path.join(out_dir, 'content.png')
   init_path = os.path.join(out_dir, 'init.png')
 
   write_image(img_path, output_img)
   write_image(content_path, content_img)
   write_image(init_path, init_img)
-  index = 0
-  for style_img in style_imgs:
-    path = os.path.join(out_dir, 'style_'+str(index)+'.png')
+  for index, style_img in enumerate(style_imgs):
+    path = os.path.join(out_dir, f'style_{str(index)}.png')
     write_image(path, style_img)
-    index += 1
-  
   # save the configuration settings
   out_file = os.path.join(out_dir, 'meta_data.txt')
-  f = open(out_file, 'w')
-  f.write('image_name: {}\n'.format(args.img_name))
-  f.write('content: {}\n'.format(args.content_img))
-  index = 0
-  for style_img, weight in zip(args.style_imgs, args.style_imgs_weights):
-    f.write('styles['+str(index)+']: {} * {}\n'.format(weight, style_img))
-    index += 1
-  index = 0
-  if args.style_mask_imgs is not None:
-    for mask in args.style_mask_imgs:
-      f.write('style_masks['+str(index)+']: {}\n'.format(mask))
+  with open(out_file, 'w') as f:
+    f.write(f'image_name: {args.img_name}\n')
+    f.write(f'content: {args.content_img}\n')
+    index = 0
+    for style_img, weight in zip(args.style_imgs, args.style_imgs_weights):
+      f.write(f'styles[{str(index)}' + f']: {weight} * {style_img}\n')
       index += 1
-  f.write('init_type: {}\n'.format(args.init_img_type))
-  f.write('content_weight: {}\n'.format(args.content_weight))
-  f.write('style_weight: {}\n'.format(args.style_weight))
-  f.write('tv_weight: {}\n'.format(args.tv_weight))
-  f.write('content_layers: {}\n'.format(args.content_layers))
-  f.write('style_layers: {}\n'.format(args.style_layers))
-  f.write('optimizer_type: {}\n'.format(args.optimizer))
-  f.write('max_iterations: {}\n'.format(args.max_iterations))
-  f.write('max_image_size: {}\n'.format(args.max_size))
-  f.close()
+    index = 0
+    if args.style_mask_imgs is not None:
+      for mask in args.style_mask_imgs:
+        f.write(f'style_masks[{str(index)}' + f']: {mask}\n')
+        index += 1
+    f.write(f'init_type: {args.init_img_type}\n')
+    f.write(f'content_weight: {args.content_weight}\n')
+    f.write(f'style_weight: {args.style_weight}\n')
+    f.write(f'tv_weight: {args.tv_weight}\n')
+    f.write(f'content_layers: {args.content_layers}\n')
+    f.write(f'style_layers: {args.style_layers}\n')
+    f.write(f'optimizer_type: {args.optimizer}\n')
+    f.write(f'max_iterations: {args.max_iterations}\n')
+    f.write(f'max_image_size: {args.max_size}\n')
 
 '''
   image loading and processing
@@ -682,21 +668,16 @@ def get_init_image(init_type, content_img, style_imgs, frame=None):
   elif init_type == 'style':
     return style_imgs[0]
   elif init_type == 'random':
-    init_img = get_noise_image(args.noise_ratio, content_img)
-    return init_img
-  # only for video frames
+    return get_noise_image(args.noise_ratio, content_img)
   elif init_type == 'prev':
-    init_img = get_prev_frame(frame)
-    return init_img
+    return get_prev_frame(frame)
   elif init_type == 'prev_warped':
-    init_img = get_prev_warped_frame(frame)
-    return init_img
+    return get_prev_warped_frame(frame)
 
 def get_content_frame(frame):
   fn = args.content_frame_frmt.format(str(frame).zfill(4))
   path = os.path.join(args.video_input_dir, fn)
-  img = read_image(path)
-  return img
+  return read_image(path)
 
 def get_content_image(content_img):
   path = os.path.join(args.content_img_dir, content_img)
@@ -733,8 +714,7 @@ def get_style_images(content_img):
 def get_noise_image(noise_ratio, content_img):
   np.random.seed(args.seed)
   noise_img = np.random.uniform(-20., 20., content_img.shape).astype(np.float32)
-  img = noise_ratio * noise_img + (1.-noise_ratio) * content_img
-  return img
+  return noise_ratio * noise_img + (1.-noise_ratio) * content_img
 
 def get_mask_image(mask_img, width, height):
   path = os.path.join(args.content_img_dir, mask_img)
@@ -763,8 +743,7 @@ def get_prev_warped_frame(frame):
   path = os.path.join(args.video_input_dir, fn)
   flow = read_flow_file(path)
   warped_img = warp_image(prev_img, flow).astype(np.float32)
-  img = preprocess(warped_img)
-  return img
+  return preprocess(warped_img)
 
 def get_content_weights(frame, prev_frame):
   forward_fn = args.content_weights_frmt.format(str(prev_frame), str(frame))
@@ -782,11 +761,13 @@ def warp_image(src, flow):
     flow_map[1,y,:] = float(y) + flow[1,y,:]
   for x in range(w):
     flow_map[0,:,x] = float(x) + flow[0,:,x]
-  # remap pixels to optical flow
-  dst = cv2.remap(
-    src, flow_map[0], flow_map[1], 
-    interpolation=cv2.INTER_CUBIC, borderMode=cv2.BORDER_TRANSPARENT)
-  return dst
+  return cv2.remap(
+      src,
+      flow_map[0],
+      flow_map[1],
+      interpolation=cv2.INTER_CUBIC,
+      borderMode=cv2.BORDER_TRANSPARENT,
+  )
 
 def convert_to_original_colors(content_img, stylized_img):
   content_img  = postprocess(content_img)
@@ -821,30 +802,27 @@ def render_single_image():
     tick = time.time()
     stylize(content_img, style_imgs, init_img)
     tock = time.time()
-    print('Single image elapsed time: {}'.format(tock - tick))
+    print(f'Single image elapsed time: {tock - tick}')
 
 def render_video():
   for frame in range(args.start_frame, args.end_frame+1):
     with tf.Graph().as_default():
-      print('\n---- RENDERING VIDEO FRAME: {}/{} ----\n'.format(frame, args.end_frame))
+      print(f'\n---- RENDERING VIDEO FRAME: {frame}/{args.end_frame} ----\n')
       if frame == 1:
         content_frame = get_content_frame(frame)
         style_imgs = get_style_images(content_frame)
         init_img = get_init_image(args.first_frame_type, content_frame, style_imgs, frame)
         args.max_iterations = args.first_frame_iterations
-        tick = time.time()
-        stylize(content_frame, style_imgs, init_img, frame)
-        tock = time.time()
-        print('Frame {} elapsed time: {}'.format(frame, tock - tick))
       else:
         content_frame = get_content_frame(frame)
         style_imgs = get_style_images(content_frame)
         init_img = get_init_image(args.init_frame_type, content_frame, style_imgs, frame)
         args.max_iterations = args.frame_iterations
-        tick = time.time()
-        stylize(content_frame, style_imgs, init_img, frame)
-        tock = time.time()
-        print('Frame {} elapsed time: {}'.format(frame, tock - tick))
+
+      tick = time.time()
+      stylize(content_frame, style_imgs, init_img, frame)
+      tock = time.time()
+      print(f'Frame {frame} elapsed time: {tock - tick}')
 
 def main():
   global args
